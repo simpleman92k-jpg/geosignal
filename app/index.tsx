@@ -1,76 +1,7 @@
-import { useState } from 'react';
-import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import MapView, { Circle, Marker } from 'react-native-maps';
-
-const SIGNALS = [
-  {
-    id: 'taiwan',
-    country: 'Taiwan Strait',
-    time: '14 min ago',
-    title: 'PLA naval drills expand to 200-mile exclusion zone',
-    severity: 9.1,
-    tagColor: 'red',
-    tag2: 'Semiconductors',
-    tag2Color: 'amber',
-    coordinate: { latitude: 24.5, longitude: 122.0 },
-    ripple: [
-      { label: 'TSMC fab output at risk', impact: '-12%', up: false },
-      { label: 'Apple / Nvidia supply chain', impact: '-6%', up: false },
-      { label: 'US defense stocks', impact: '+8%', up: true },
-      { label: 'Bitcoin safe haven flow', impact: '+4%', up: true },
-    ],
-    tickers: [
-      { symbol: 'AAPL', direction: 'down', signal: 'WATCH', impact: '-6%', reason: 'TSMC manufactures 92% of Apple chips. A blockade halts production within 3 weeks.', horizon: '2–4 weeks' },
-      { symbol: 'NVDA', direction: 'down', signal: 'SELL', impact: '-12%', reason: 'Nvidia H100 chips are TSMC-exclusive. Export controls + supply disruption = double risk.', horizon: '1–3 weeks' },
-      { symbol: 'TSM', direction: 'down', signal: 'SELL', impact: '-18%', reason: 'Direct exposure. TSMC is the epicenter of this risk. Historically drops 15-20% on strait escalations.', horizon: 'Immediate' },
-      { symbol: 'LMT', direction: 'up', signal: 'BUY', impact: '+8%', reason: 'Lockheed benefits from Taiwan tensions. Defense spending accelerates. F-35 orders likely to increase.', horizon: '1–6 months' },
-      { symbol: 'BTC', direction: 'up', signal: 'WATCH', impact: '+4%', reason: 'Bitcoin historically sees safe haven inflows during geopolitical crises. Pattern held in 2022 Ukraine conflict.', horizon: '48–72 hrs' },
-    ],
-  },
-  {
-    id: 'russia',
-    country: 'Russia / Black Sea',
-    time: '1 hr ago',
-    title: 'Grain export corridor suspended — 3rd incident this week',
-    severity: 6.4,
-    tagColor: 'amber',
-    tag2: 'Agriculture',
-    tag2Color: 'blue',
-    coordinate: { latitude: 43.0, longitude: 34.0 },
-    ripple: [
-      { label: 'Wheat / corn futures spike', impact: '+9%', up: true },
-      { label: 'US ag stocks ADM, BG', impact: '+5%', up: true },
-      { label: 'Emerging market inflation', impact: '-3%', up: false },
-    ],
-    tickers: [
-      { symbol: 'ADM', direction: 'up', signal: 'BUY', impact: '+5%', reason: 'Archer-Daniels-Midland is a direct beneficiary of grain supply shocks. Higher prices = higher margins.', horizon: '2–6 weeks' },
-      { symbol: 'BG', direction: 'up', signal: 'BUY', impact: '+5%', reason: 'Bunge Global is one of the largest grain traders. Black Sea disruptions historically boost BG.', horizon: '2–6 weeks' },
-      { symbol: 'WEAT', direction: 'up', signal: 'BUY', impact: '+9%', reason: 'Wheat ETF directly tracks wheat futures. Corridor suspension is an immediate catalyst.', horizon: 'Immediate' },
-      { symbol: 'EEM', direction: 'down', signal: 'WATCH', impact: '-3%', reason: 'Emerging markets are most exposed to food inflation from grain supply shocks.', horizon: '1–3 months' },
-    ],
-  },
-  {
-    id: 'indonesia',
-    country: 'Indonesia',
-    time: '3 hr ago',
-    title: 'New nickel export regulation quietly passed',
-    severity: 5.2,
-    tagColor: 'green',
-    tag2: 'Hidden Signal',
-    tag2Color: 'blue',
-    coordinate: { latitude: -2.5, longitude: 118.0 },
-    ripple: [
-      { label: 'EV battery cost increase', impact: '+7%', up: false },
-      { label: 'Tesla / Rivian margins', impact: '-4%', up: false },
-      { label: 'Nickel mining stocks', impact: '+11%', up: true },
-    ],
-    tickers: [
-      { symbol: 'TSLA', direction: 'down', signal: 'WATCH', impact: '-4%', reason: 'Tesla batteries require nickel. Supply restriction raises production costs, compressing margins.', horizon: '1–3 months' },
-      { symbol: 'RIVN', direction: 'down', signal: 'SELL', impact: '-6%', reason: 'Rivian is more exposed than Tesla — less supply chain diversification and thinner margins.', horizon: '1–3 months' },
-      { symbol: 'VALE', direction: 'up', signal: 'BUY', impact: '+11%', reason: 'Vale is a major nickel producer. Indonesian export restrictions increase demand for Vale supply.', horizon: '2–8 weeks' },
-    ],
-  },
-];
+import { supabase } from '../lib/supabase';
 
 type Ticker = {
   symbol: string;
@@ -81,38 +12,83 @@ type Ticker = {
   horizon: string;
 };
 
+type Signal = {
+  id: number;
+  country: string;
+  time?: string;
+  title: string;
+  severity: number;
+  tag1: string;
+  tag2: string;
+  tagColor?: string;
+  tag2Color?: string;
+  latitude: number;
+  longitude: number;
+  ripple: { label: string; impact: string; up: boolean }[];
+  tickers: Ticker[];
+};
+
 export default function MapScreen() {
+  const [signals, setSignals] = useState<Signal[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [activeTicker, setActiveTicker] = useState<Ticker | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchSignals();
+  }, []);
+
+  async function fetchSignals() {
+    const { data, error } = await supabase.from('signals').select('*').order('created_at', { ascending: false });
+    if (data) {
+      const mapped = data.map(s => ({
+        ...s,
+        time: new Date(s.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        tagColor: s.severity >= 8 ? 'red' : s.severity >= 6 ? 'amber' : 'green',
+        tag2Color: 'blue',
+      }));
+      setSignals(mapped);
+    }
+    setLoading(false);
+  }
 
   const getTag = (color: string, text: string) => {
     const s = color === 'red' ? styles.tagRed : color === 'amber' ? styles.tagAmber : color === 'green' ? styles.tagGreen : styles.tagBlue;
     return <Text style={s}>{text}</Text>;
   };
 
+  if (loading) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator color="#4ade80" size="large" />
+        <Text style={{ color: '#4ade80', marginTop: 12 }}>Loading signals...</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>GeoSignal</Text>
-        <Text style={styles.headerSub}>{SIGNALS.length} active signals</Text>
+        <Text style={styles.headerSub}>{signals.length} active signals</Text>
       </View>
 
       <MapView
         style={styles.map}
         customMapStyle={darkMapStyle}
         initialRegion={{ latitude: 20, longitude: 60, latitudeDelta: 80, longitudeDelta: 100 }}>
-        {SIGNALS.map(s => (
+        {signals.map(s => (
           <View key={s.id}>
             <Circle
-              center={s.coordinate}
+              center={{ latitude: s.latitude, longitude: s.longitude }}
               radius={500000}
               fillColor={s.tagColor === 'red' ? 'rgba(239,68,68,0.15)' : s.tagColor === 'amber' ? 'rgba(245,158,11,0.15)' : 'rgba(34,197,94,0.15)'}
               strokeColor={s.tagColor === 'red' ? '#ef4444' : s.tagColor === 'amber' ? '#f59e0b' : '#22c55e'}
               strokeWidth={1}
             />
             <Marker
-              coordinate={s.coordinate}
-              onPress={() => setSelected(selected === s.id ? null : s.id)}>
+              coordinate={{ latitude: s.latitude, longitude: s.longitude }}
+              onPress={() => setSelected(selected === String(s.id) ? null : String(s.id))}>
               <View style={[styles.markerDot, { backgroundColor: s.tagColor === 'red' ? '#ef4444' : s.tagColor === 'amber' ? '#f59e0b' : '#22c55e' }]} />
             </Marker>
           </View>
@@ -121,23 +97,23 @@ export default function MapScreen() {
 
       <ScrollView style={styles.signals}>
         <Text style={styles.sectionLabel}>LIVE SIGNALS</Text>
-        {SIGNALS.map(signal => (
+        {signals.map(signal => (
           <View key={signal.id}>
             <TouchableOpacity
-              style={[styles.signalCard, selected === signal.id && styles.signalCardSelected]}
-              onPress={() => setSelected(selected === signal.id ? null : signal.id)}>
+              style={[styles.signalCard, selected === String(signal.id) && styles.signalCardSelected]}
+              onPress={() => setSelected(selected === String(signal.id) ? null : String(signal.id))}>
               <View style={styles.signalHeader}>
                 <Text style={styles.country}>{signal.country}</Text>
                 <Text style={styles.time}>{signal.time}</Text>
               </View>
               <Text style={styles.signalTitle}>{signal.title}</Text>
               <View style={styles.tags}>
-                {getTag(signal.tagColor, `Severity ${signal.severity}`)}
-                {getTag(signal.tag2Color, signal.tag2)}
+                {getTag(signal.tagColor || 'green', signal.tag1)}
+                {getTag(signal.tag2Color || 'blue', signal.tag2)}
               </View>
             </TouchableOpacity>
 
-            {selected === signal.id && (
+            {selected === String(signal.id) && (
               <View style={styles.ripplePanel}>
                 <Text style={styles.rippleTitle}>RIPPLE CHAIN</Text>
                 {signal.ripple.map((r, i) => (
