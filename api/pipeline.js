@@ -1,5 +1,5 @@
-import { createClient } from '@supabase/supabase-js';
-import Groq from 'groq-sdk';
+const { createClient } = require('@supabase/supabase-js');
+const Groq = require('groq-sdk');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -66,7 +66,7 @@ async function isDuplicate(title) {
   return data && data.length > 0;
 }
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   try {
     const articles = await fetchGDELTEvents();
     let added = 0;
